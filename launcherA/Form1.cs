@@ -61,7 +61,10 @@ namespace launcherA
         int gameDelay = 100; // 100 ticks of no restarting
         int currentDelay = 0;
 
+        int timesPressedClose = 0;
+
         WebIO webIO;
+        Config loadedConfig;
 
         // Executes upon the start of the program
         // Moves the cursor, gets the start time (used to calculate how long a game has been running)
@@ -120,6 +123,7 @@ namespace launcherA
                 // if there's no config, write the default to disc
                 File.WriteAllText(Directory.GetCurrentDirectory() + "\\_config.json", JsonConvert.SerializeObject(c));
             }
+            loadedConfig = c;
 
             if (c.attractActivate > 1000) // has to be at least 1 second; how long you wait with no input until activating attract mode
             {
@@ -187,9 +191,14 @@ namespace launcherA
             {
                 if (kId == KILLGAME_HOTKEY_ID) // F1
                 {
-                    if (runningProcess != null && !runningProcess.HasExited)
-                        KillProcessAndChildrens(runningProcess.Id);
-                    UpdateGamePlayedTime();
+                    timesPressedClose += 1;
+                    Console.WriteLine(timesPressedClose);
+                    if (timesPressedClose >= loadedConfig.numClosePresses)
+                    {
+                        if (runningProcess != null && !runningProcess.HasExited)
+                            KillProcessAndChildrens(runningProcess.Id);
+                        UpdateGamePlayedTime();
+                    }
                 }
                 else if (kId == VOLUMEUP_HOTKEY_ID) // F2
                 {
@@ -204,7 +213,7 @@ namespace launcherA
                     Mute();
                 } else if (kId == REFRESH_ID) // F5
                 {
-                    webBrowser.Reload();
+                    //webBrowser.Reload();
                 }
 
                 if (runningProcess == null && SGDCLauncher.ActiveForm != null)
@@ -296,6 +305,7 @@ namespace launcherA
             gamesList[selected].plays += 1;
             WriteGamesJson();
 
+            timesPressedClose = 0;
             timeStarted = DateTime.Now;
 
             runningProcess.EnableRaisingEvents = true;
@@ -312,6 +322,7 @@ namespace launcherA
             currentDelay = gameDelay;
             UpdateGamePlayedTime();
 
+            timesPressedClose = 0;
             didCloseGame = true;
 
             webIO.loadedGame = false;
@@ -501,6 +512,10 @@ namespace launcherA
         private void TmrAttract_Tick(object sender, EventArgs e)
         {
             Console.WriteLine("Got attract tick");
+            if (timesPressedClose > 0)
+            {
+                timesPressedClose -= 1;
+            }
             if (attract && (runningProcess == null || runningProcess.HasExited))
             {
                 EventDown(true); // manually "scroll down" once every tick
@@ -552,6 +567,7 @@ namespace launcherA
             c.startBlink = 450;
             c.borderless = false;
             c.lockMouse = false;
+            c.numClosePresses = 1;
 
             return c;
         }
@@ -596,6 +612,11 @@ namespace launcherA
         public int startBlink { get; set; }
         public bool borderless { get; set; }
         public bool lockMouse { get; set; }
+
+        // How many times the F1 override Close has to be pressed to actually close the game
+        // Used mainly in the case where an Xbox Controller plus AntiMicroX is remapped to hold Back to Press F1
+        // to force the user to hold the button for a second to actually close the game
+        public int numClosePresses { get; set; }
     }
 
     public class WebIO

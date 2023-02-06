@@ -38,7 +38,7 @@
             // tmrController
             // 
             this.tmrController.Enabled = true;
-            this.tmrController.Interval = 1;
+            this.tmrController.Interval = 16;
             this.tmrController.Tick += new System.EventHandler(this.TmrController_Tick);
             // 
             // tmrAttract
