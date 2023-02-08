@@ -51,8 +51,6 @@ namespace launcherA
         int selected;
         List<GamepadState> controllers;
 
-        bool shouldUpdate = false;
-
         bool attract = false;
 
         bool hasRegisteredArrows = false; // has registered hotkeys for the arrows/space/enter
@@ -60,8 +58,8 @@ namespace launcherA
 
         int gameDelay = 100; // 100 ticks of no restarting
         int currentDelay = 0;
-
-        int timesPressedClose = 0;
+        List<int> ticksHeldMacro = new List<int>();
+        int ticksUntilForceQuit = 63;
 
         WebIO webIO;
         Config loadedConfig;
@@ -178,9 +176,16 @@ namespace launcherA
             WindowState = FormWindowState.Maximized;
             controllers = new List<GamepadState>();
             controllers.Add(new GamepadState(SlimDX.XInput.UserIndex.One));
+            ticksHeldMacro.Add(0);
+
             controllers.Add(new GamepadState(SlimDX.XInput.UserIndex.Two));
+            ticksHeldMacro.Add(0);
+
             controllers.Add(new GamepadState(SlimDX.XInput.UserIndex.Three));
+            ticksHeldMacro.Add(0);
+
             controllers.Add(new GamepadState(SlimDX.XInput.UserIndex.Four));
+            ticksHeldMacro.Add(0);
         }
 
         // receive global hotkey event, used to overwrite system reaction to F1-F4
@@ -191,14 +196,9 @@ namespace launcherA
             {
                 if (kId == KILLGAME_HOTKEY_ID) // F1
                 {
-                    timesPressedClose += 1;
-                    Console.WriteLine(timesPressedClose);
-                    if (timesPressedClose >= loadedConfig.numClosePresses)
-                    {
-                        if (runningProcess != null && !runningProcess.HasExited)
-                            KillProcessAndChildrens(runningProcess.Id);
-                        UpdateGamePlayedTime();
-                    }
+                    if (runningProcess != null && !runningProcess.HasExited)
+                        KillProcessAndChildrens(runningProcess.Id);
+                    UpdateGamePlayedTime();
                 }
                 else if (kId == VOLUMEUP_HOTKEY_ID) // F2
                 {
@@ -305,7 +305,6 @@ namespace launcherA
             gamesList[selected].plays += 1;
             WriteGamesJson();
 
-            timesPressedClose = 0;
             timeStarted = DateTime.Now;
 
             runningProcess.EnableRaisingEvents = true;
@@ -322,7 +321,6 @@ namespace launcherA
             currentDelay = gameDelay;
             UpdateGamePlayedTime();
 
-            timesPressedClose = 0;
             didCloseGame = true;
 
             webIO.loadedGame = false;
@@ -344,7 +342,6 @@ namespace launcherA
             TimeSpan total = DateTime.Now.Subtract(timeStarted);
             gamesList[selected].time += total.Minutes + 1;
             WriteGamesJson();
-            shouldUpdate = true; // have to queue because handleGameExit can call this which is on a different thread
         }
 
         // manually serialize gamesList back to a json file, done strictly for prettier formatting in the json file
@@ -455,6 +452,7 @@ namespace launcherA
         }
 
         // every tick poll the controllers for input, and perform actions as necessary
+        // set to 16ms / tick
         private void TmrController_Tick(object sender, EventArgs e) 
         {
             BrowserSize();
@@ -478,6 +476,25 @@ namespace launcherA
                 controllers[i].LeftStickXPrev = controllers[i].LeftStick.Position.X;
                 controllers[i].LeftStickYPrev = controllers[i].LeftStick.Position.Y;
                 controllers[i].DPadPrev = controllers[i].DPad;
+
+                if (loadedConfig.closeWithBackAndStart && runningProcess != null && !runningProcess.HasExited)
+                {
+                    if (controllers[i].Back && controllers[i].Start)
+                    {
+                        // holding Back + Start Macro
+                        ticksHeldMacro[i] += 1;
+                        if (ticksHeldMacro[i] > ticksUntilForceQuit)
+                        {
+                            Console.Write("Do Close from Macro.");
+                            ticksHeldMacro[i] = 0;
+                            KillProcessAndChildrens(runningProcess.Id);
+                            UpdateGamePlayedTime();
+                        }
+                    } else if (ticksHeldMacro[i] > 0)
+                    {
+                        ticksHeldMacro[i] -= 1;
+                    }
+                }
             }
 
             if (didUp)
@@ -492,7 +509,7 @@ namespace launcherA
             if (currentDelay > 0)
                 currentDelay--;
 
-            if (webIO.pageConfig.lockMouse)
+            if (webIO != null && webIO.pageConfig != null && webIO.pageConfig.lockMouse)
                 Cursor.Position = new Point(Screen.PrimaryScreen.Bounds.Width, Screen.PrimaryScreen.Bounds.Height);
 
             // Un-register and re-register arrow keys/enter/space when window does/does not have focus
@@ -512,10 +529,6 @@ namespace launcherA
         private void TmrAttract_Tick(object sender, EventArgs e)
         {
             Console.WriteLine("Got attract tick");
-            if (timesPressedClose > 0)
-            {
-                timesPressedClose -= 1;
-            }
             if (attract && (runningProcess == null || runningProcess.HasExited))
             {
                 EventDown(true); // manually "scroll down" once every tick
@@ -567,7 +580,7 @@ namespace launcherA
             c.startBlink = 450;
             c.borderless = false;
             c.lockMouse = false;
-            c.numClosePresses = 1;
+            c.closeWithBackAndStart = true;
 
             return c;
         }
@@ -613,10 +626,9 @@ namespace launcherA
         public bool borderless { get; set; }
         public bool lockMouse { get; set; }
 
-        // How many times the F1 override Close has to be pressed to actually close the game
-        // Used mainly in the case where an Xbox Controller plus AntiMicroX is remapped to hold Back to Press F1
-        // to force the user to hold the button for a second to actually close the game
-        public int numClosePresses { get; set; }
+        // Support a macro for holding Back+Start for 1 second with a game open to force close the game
+        // Defaults to true
+        public bool closeWithBackAndStart { get; set; }
     }
 
     public class WebIO
