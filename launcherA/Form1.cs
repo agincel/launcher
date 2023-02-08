@@ -89,7 +89,20 @@ namespace launcherA
                         {
                             info += line;
                         }
-                        gamesList.Add(JsonConvert.DeserializeObject<Game>(info)); // parse info.json to type Game, and add it to gamesList
+                        // parse info.json to type Game, and add it to gamesList
+                        Game game = JsonConvert.DeserializeObject<Game>(info);
+
+                        // attempt to find .webm video in folder, inject into game definition if found
+                        string[] webms = Directory.GetFiles(dir, "*.webm");
+                        if (webms.Length > 0)
+                        {
+                            string[] split = webms[0].Split('\\');
+
+                            // "gameFolderName/videoName.webm"
+                            game.foundVideo = split[split.Length - 2] + "/" + split[split.Length - 1];
+                        }
+
+                        gamesList.Add(game); 
                     }
                     catch (Exception)
                     {
@@ -379,16 +392,6 @@ namespace launcherA
         {
             if (gamesList != null && gamesList.Count > 0)
             {
-                if (gamesList[selected].videoName != null && gamesList[selected].videoName != "" && File.Exists(System.IO.Path.Combine(Directory.GetCurrentDirectory() + "\\videos\\", gamesList[selected].videoName)))
-                { 
-                    // if specified video exists
-                    webIO.selectedGameVideo = "./videos/" + gamesList[selected].videoName;
-                }
-                else
-                {
-                    webIO.selectedGameVideo = webIO.staticVideoPath;
-                }
-
                 webIO.selectedGameIndex = selected;
                 webIO.currentlySelectedGame = gamesList[selected];
                 SendWebIO();
@@ -610,6 +613,7 @@ namespace launcherA
         public string name { get; set; }
         public string description { get; set; }
         public string exeName { get; set; }
+        public string foundVideo { get; set; }
         public string videoName { get; set; }
         public string devs { get; set; }
         public int plays { get; set; }
